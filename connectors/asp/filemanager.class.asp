@@ -1,48 +1,49 @@
 <!-- #include file="filemanager.config.asp" -->
+<!-- #include file="class/JSON_2.0.4.asp" -->
+<!-- #include file="class/clsUpload.asp"-->
+<!-- #include file="class/clsImage.asp"-->
 <%
 Class cFileManager
 
 	Private userPath
 	Private fs
-	Private upl
 	Private objStream
 	Private objImage
+	Private objJson 
+	Private objUpload
 
 	Private Sub Class_Initialize()
 		Set fs = Server.CreateObject("Scripting.FileSystemObject")
 		Set objStream = Server.CreateObject("ADODB.Stream")
-		Set upl = Server.CreateObject("Dundas.Upload.2")
+		Set objJson = jsObject()
 		userPath = ""
 		If enableImageHandle Then
-			Set objImage = Server.CreateObject("GflAx.GflAx")
+			Set objImage = New clsImage
 		End If
 	End Sub
 	
 	Private Sub Class_Terminate()
 		Set fs = Nothing
 		Set objStream = Nothing
-		Set upl = Nothing
+		Set objJson = Nothing		
 		If enableImageHandle Then
 			Set objImage = Nothing
 		End If
 	End Sub
 
-
 	Private Function isFolder(path)
 		isFolder = (Right(path,1) = "/")
 	End Function
 	
-	Private Function returnError(message)
-		ReturnError = "		{" & vbCrLf & _
-					"			Error: ""Error: " & message & """," & vbCrLf & _
-					"			Code: -1" & vbCrLf & _
-					"		}" & vbCrLf
-	End Function
+	Private Sub returnError(message)
+		objJson("Code") = -1
+		objJson("Error") = message
+	End Sub
 
 	Private Function getImageProp(path, byRef width, byRef height)
 		getImageProp = False
 		If enableImageHandle Then
-			objImage.LoadBitmap Server.MapPath(path)
+			objImage.Read(Server.MapPath(path))
 			width = objImage.Width
 			height = objImage.Height
 			getImageProp = True
@@ -58,21 +59,13 @@ Class cFileManager
 		Next
 		isImageExt = False
 	End Function
-
-	Private Function getFileInfo(path, file)
-		Dim strFileProp, fileExt, preview, width, height
-
-		'get file type
-		fileExt = lCase(Split(file,".")(uBound(Split(file,"."))))
-		
-		strFileProp = strFileProp & "		'Path': '" & path & "'," & vbCrLf
-		strFileProp = strFileProp & "		'Filename': '" & file.Name & "'," & vbCrLf
-		strFileProp = strFileProp & "		'File Type': 'jpg'," & vbCrLf
-
-		If isImageExt(fileExt) Then
+	
+	Private Function getPreviews(ext, path)
+		Dim preview
+		If isImageExt(ext) Then
 			preview = userPath & path
 		Else
-			Select Case fileExt
+			Select Case ext
 				Case "txt", "rtf": preview = "txt"
 				Case "zip": preview = "zip"
 				Case "doc", "docx": preview = "doc"
@@ -84,206 +77,217 @@ Class cFileManager
 				Case "avi", "mpg", "mpeg", "wmv", "mp4", "mov", "swf": preview = "other_movie"
 				Case Else: preview = "default"
 			End Select
-			preview = ckeditorPath & "images/fileicons/" & preview & ".png"
+			preview = fileIconsPath & preview & ".png"
 		End If
+		getPreviews = preview
+	End Function	
 
-		strFileProp = strFileProp & "		'Preview': '" & preview & "'," & vbCrLf
-		strFileProp = strFileProp & "		'Properties': {" & vbCrLf
-		strFileProp = strFileProp & "			'Date Created': null, " & vbCrLf
-		strFileProp = strFileProp & "			'Date Modified': '" & file.DateLastModified & "', " & vbCrLf
-		If isImageExt(fileExt) And enableImageHandle Then
-			If getImageProp(path, width, height) Then
-				strFileProp = strFileProp & "			'Height': " & height & "," & vbCrLf
-				strFileProp = strFileProp & "			'Width': " & width & "," & vbCrLf
+	Private Sub getFileInfoByFolder(path, file)
+		Dim fileExt, width, height
+		fileExt = lCase(Split(file,".")(uBound(Split(file,"."))))
+		Set objJson(path) =  jsObject() 		
+		objJson(path)("Path") =  path 
+		objJson(path)("Filename") = file.Name
+		objJson(path)("File Type") = fileExt
+		objJson(path)("Preview") = getPreviews(fileExt, path)
+			Set objJson(path)("Properties")	= jsObject()
+			objJson(path)("Properties")("Date Created") = file.DateCreated
+			objJson(path)("Properties")("Date Modified") = file.DateLastModified
+			If isImageExt(fileExt) And enableImageHandle Then
+				If getImageProp(path, width, height) Then
+					objJson(path)("Properties")("Height") = height
+					objJson(path)("Properties")("Width") =  width 
+				End If
 			End If
-		End If
-		strFileProp = strFileProp & "			'Size': " & file.size & " " & vbCrLf
-		strFileProp = strFileProp & "		}," & vbCrLf
-		strFileProp = strFileProp & "		'Error': ''," & vbCrLf
-		strFileProp = strFileProp & "		'Code': 0" & vbCrLf
-		getFileInfo = strFileProp
-	End Function
-
-	Private Function getFolderInfo(path, folder)
-		Dim strFileProp
-		strFileProp = strFileProp & "		'Path': '" & path & "'," & vbCrLf
-		strFileProp = strFileProp & "		'Filename': '" & folder.Name & "'," & vbCrLf
-		strFileProp = strFileProp & "		'File Type': 'dir'," & vbCrLf
-		strFileProp = strFileProp & "		'Preview': '" & ckeditorPath & "images/fileicons/_Close.png'," & vbCrLf
-		strFileProp = strFileProp & "		'Properties': {" & vbCrLf
-		strFileProp = strFileProp & "			'Date Created': null, " & vbCrLf
-		strFileProp = strFileProp & "			'Date Modified': '" & folder.DateLastModified & "', " & vbCrLf
-		strFileProp = strFileProp & "			'Size': " & folder.size & " " & vbCrLf
-		strFileProp = strFileProp & "		}," & vbCrLf
-		strFileProp = strFileProp & "		'Error': ''," & vbCrLf
-		strFileProp = strFileProp & "		'Code': 0" & vbCrLf
-		getFolderInfo = strFileProp
-	End Function
-
-
+			objJson(path)("Properties")("Size") = file.Size
+		objJson(path)("Error") = ""
+		objJson(path)("Code") = 0
+	End Sub
+		
+	Private Sub	getFileInfoByInfo(path, file)
+		Dim fileExt, width, height
+		fileExt = lCase(Split(file,".")(uBound(Split(file,"."))))
+		objJson("Path") =  path 
+		objJson("Filename") = file.Name
+		objJson("File Type") = fileExt
+		objJson("Preview") = getPreviews(fileExt, path)
+			Set objJson("Properties")	= jsObject()
+			objJson("Properties")("Date Created") = file.DateCreated
+			objJson("Properties")("Date Modified") = file.DateLastModified
+			If isImageExt(fileExt) And enableImageHandle Then
+				If getImageProp(path, width, height) Then
+					objJson("Properties")("Height") = height
+					objJson("Properties")("Width") =  width 
+				End If
+			End If
+			objJson("Properties")("Size") = file.Size
+		objJson("Error") = ""
+		objJson("Code") = 0
+	End Sub
+	
+	Private Sub getFolderInfoByFolder(path, folder)
+		Set objJson(path) =  jsObject() 
+		objJson(path)("Path") =  path 
+		objJson(path)("Filename") = folder.Name
+		objJson(path)("File Type") = "dir"
+		objJson(path)("Preview") = fileIconsPath & "_Close.png"
+			Set objJson(path)("Properties")	= jsObject()
+			objJson(path)("Properties")("Date Created") = folder.DateCreated
+			objJson(path)("Properties")("Date Modified")= folder.DateLastModified
+			objJson(path)("Properties")("Size") = folder.Size
+		objJson(path)("Error") = ""
+		objJson(path)("Code") = 0
+	End Sub
+		
+	Private Sub	getFolderInfoByInfo(path, folder)
+		objJson("Path") =  path 
+		objJson("Filename") = folder.Name
+		objJson("File Type") = "dir"
+		objJson("Preview") = fileIconsPath & "_Close.png"
+			Set objJson("Properties")	= jsObject()
+			objJson("Properties")("Date Created") = folder.DateCreated
+			objJson("Properties")("Date Modified")= folder.DateLastModified
+			objJson("Properties")("Size") = folder.Size
+		objJson("Error") = ""
+		objJson("Code") = 0				
+	End Sub
 
 	Public Function GetInfo(path)
-		Dim file, strFileProp
-		
-		strFileProp = strFileProp & "{" & vbCrLf
+		Dim file
 		On Error Resume Next
 		If isFolder(path) Then
 			Set file = fs.GetFolder(Server.MapPath(userPath + path))
-			strFileProp = strFileProp & getFolderInfo(path, file)
 		Else
 			Set file = fs.GetFile(Server.MapPath(userPath + path))
-			strFileProp = strFileProp & getFileInfo(path, file)
 		End If
 		If Err.Number <> 0 Then
-			GetInfo = returnError ("Can't open folder or path")
-			Exit Function
+			Call returnError ("Can't open folder or path")
+		Else
+			If isFolder(path) Then
+				Call getFolderInfoByInfo(path, file)
+			Else
+				Call getFileInfoByInfo(path, file)
+			End If
 		End If
 		On Error Goto 0
-
-		strFileProp = strFileProp & "}" & vbCrLf
+		GetInfo = objJson.Flush
 		Set file = Nothing
-
-		GetInfo = strFileProp
 	End Function
-
 
 	Public Function GetFolder(path)
 		Dim folder
-		Dim arrFileProp()
-		Dim count
-
-'		On Error Resume Next
-	
+		On Error Resume Next	
 		Set folder = fs.GetFolder(Server.MapPath(userPath + path))
-		
-		ReDim arrFileProp(folder.subfolders.Count + folder.files.Count - 1)
-
-		count = 0
-
-		'loop folders
-		For Each item in folder.subfolders
-			arrFileProp(count) = "	'" & path & item.Name & "/': {" & vbCrLf & _
-								getFolderInfo(path & item.Name & "/", item) & _
-								"}" & vbCrLf
-			count = count + 1
-		Next
-
-		'loop files
-		For Each item in folder.files
-			arrFileProp(count) = "	'" & path & item.Name & "': {" & vbCrLf  & _
-								getFileInfo(path & item.name, item) & _
-								"}" & vbCrLf
-			count = count + 1
-		Next
-		
 		If Err.Number <> 0 Then
-			GetFolder = returnError ("Can't open folder")
-			Exit Function
+			Call returnError ("Can't open folder")
+		Else
+			For Each item in folder.subfolders
+				Call getFolderInfoByFolder(path & item.name & "/" , item)			
+			Next
+			For Each item in folder.files
+				Call getFileInfoByFolder(path & item.name, item)			
+			Next		
 		End If
-		
 		On Error Goto 0
-
-		GetFolder = "{" & vbCrLf & Join(arrFileProp,",") & vbCrLf & "}"
+		GetFolder = objJson.Flush
 	End Function
-
 
 	Public Function AddFolder(path, name)
 		Dim newPath
-
-		newPath = Server.MapPath(userPath & path & name)
-
-		If fs.FolderExists(newPath) Then
-			AddFolder = returnError ("Folder already exists")
-		Else
-			On Error Resume Next
-			fs.CreateFolder(newPath)
-
-			If Err.Number <> 0 Then
-				AddFolder = returnError ("Can't create folder")
-				Exit Function
-			End If
-
-			On Error Goto 0
-
-			AddFolder = "		{" & vbCrLf &_
-					"			'Parent': '" & path & "'," & vbCrLf &_
-					"			'Name': '" & name & "'," & vbCrLf &_
-					"			'Error': 'No error'," & vbCrLf &_
-					"			'Code': 0" & vbCrLf &_
-					"		}" & vbCrLf
-		End If
-
+		If inStr(name,"/") > 0 Or inStr(name,"\") > 0 Then
+			Call returnError("Invalid name.")
+		Else	
+			newPath = Server.MapPath(userPath & path & name)
+			If fs.FolderExists(newPath) Then
+				Call returnError("Folder already exists")
+			Else
+				On Error Resume Next
+				fs.CreateFolder(newPath)
+				If Err.Number <> 0 Then
+					Call returnError("Can't create folder")
+				Else
+					Call AddFolderJSONobj(path, name)
+				End If
+				On Error Goto 0
+			End if
+		End If	
+		AddFolder = objJson.Flush
 	End Function
+	
+	Private Sub AddFolderJSONobj(path, name)
+		objJson("Parent") = path
+		objJson("Name") = name
+		objJson("Error") = ""
+		objJson("Code") = 0
+	End Sub
 
 	Public Function Rename(oldName, newName)
-		Dim item, arrPath, originalName, strReturn
-
-		arrPath = Split(oldName,"/")
-		On Error Resume Next
-		If isFolder(oldName) Then
-			Set item = fs.GetFolder(Server.MapPath(userPath + oldName))
-			ReDim Preserve arrPath(uBound(arrPath)-2)
-		Else
-			Set item = fs.GetFile(Server.MapPath(userPath + oldName))
-			ReDim Preserve arrPath(uBound(arrPath)-1)
+		Dim item, arrPath, originalName
+		If inStr(newName,"/") > 0 Or inStr(newName,"\") > 0 Then
+			Call returnError("Invalid name.")
+		Else	
+			arrPath = Split(oldName,"/")
+			On Error Resume Next
+			If isFolder(oldName) Then
+				Set item = fs.GetFolder(Server.MapPath(userPath + oldName))
+				ReDim Preserve arrPath(uBound(arrPath)-2)
+			Else
+				Set item = fs.GetFile(Server.MapPath(userPath + oldName))
+				ReDim Preserve arrPath(uBound(arrPath)-1)
+			End If
+			originalName = item.name
+			item.Move(item.ParentFolder.Path & "\" & newName)
+			If Err.Number <> 0 Then
+				Call returnError("Can't rename folder or file")
+			Else
+				Call RenameJSONobj(oldName, originalName, arrPath, newName)
+			End If
+			On Error Goto 0
 		End If
-
-		originalName = item.name
-		item.Move(item.ParentFolder.Path & "\" & newName)
-
-		If Err.Number <> 0 Then
-			Rename = returnError ("Can't rename folder or file")
-			Exit Function
-		End If
-		On Error Goto 0
-
-        Rename = "		{" & vbCrLf &_
-				"			'Error': 'No error'," & vbCrLf &_
-				"			'Code': 0," & vbCrLf &_
-				"			'Old Path': '" & oldName & "'," & vbCrLf &_
-				"			'Old Name': '" & originalName & "'," & vbCrLf &_
-				"			'New Path': '" & Join(arrPath,"/") & "/" & newName & "/'," & vbCrLf &_
-				"			'New Name': '" & newName & "'" & vbCrLf &_
-				"		}" & vbCrLf
+		Rename = objJson.Flush
 	End Function
 
+	Private Sub RenameJSONobj(oldName, originalName, arrPath, newName)
+		objJson("Error") = ""
+		objJson("Code") = 0
+		objJson("Old Path") = oldName
+		objJson("Old Name") = originalName
+		objJson("New Path") = Join(arrPath,"/") & "/" & newName & "/"
+		objJson("New Name") = newName
+	End Sub
 
 	Public Function Add()
-		Dim path, name
-
-		upl.SaveToMemory
-
-		If lCase(upl.Form("mode")) <> "add" Then
-			Exit Function
-		End If
-
-		Set oFile = upl.Files(0)
-		fileName = oFile.OriginalPath
-
-		path = upl.Form("currentpath") 'string
-		'name = upl.Form("name") 'string
-
-		On Error Resume Next
-		oFile.SaveAs Server.MapPath(userPath & path & fileName)
-
-		If Err.Number <> 0 Then
-			Add = returnError ("Can't save file")
-			Exit Function
-		End If
-		On Error Goto 0
-
-        Add = "		{" & vbCrLf &_
-				"			'Path': '" & path & "'," & vbCrLf &_
-				"			'Name': '" & fileName & "'," & vbCrLf &_
-				"			'Error': 'No error'," & vbCrLf &_
-				"			'Code': 0" & vbCrLf &_
-				"		}" & vbCrLf
+		Dim path, fileName
+		Set objUpload = new clsUpload
+		mode = objUpload.Fields("mode").Value
+		Select Case(lCase(mode))
+			Case "add":
+				fileName = objUpload.Fields("newfile").FileName
+				path = objUpload.Fields("currentpath").Value
+				On Error Resume Next
+				objUpload.Fields("newfile").SaveAs(Server.MapPath(userPath & path & fileName))
+				If Err.Number <> 0 Then
+					Call returnError ("Can't save file")
+				Else	
+					Call addJSONobj(path, fileName)
+				End If
+				On Error Goto 0
+			Case Else:
+				Call returnError("Mode Error")
+		End Select
+		Add = objJson.Flush 
+		Set objUpload = Nothing
 	End Function
-
+	
+	Private Sub addJSONobj(path, fileName)
+		objJson("Path") = path
+		objJson("Name") = fileName
+		objJson("Error") = ""
+		objJson("Code") = "0"
+	End Sub			
 
 	Public Function Delete(path)
 		Dim item
-
 		On Error Resume Next
 		If isFolder(path) Then
 			Set item = fs.GetFolder(Server.MapPath(userPath + path))
@@ -291,35 +295,31 @@ Class cFileManager
 			Set item = fs.GetFile(Server.MapPath(userPath + path))
 		End If
 		item.Delete(True)
-
 		If Err.Number <> 0 Then
-			Delete = returnError ("Can't remove folder or file")
-			Exit Function
+			Call returnError("Can't remove folder or file")
+		Else
+			Call DeleteJSONobj(path)
 		End If
-		
 		On Error Goto 0
-
-        Delete = "		{" & vbCrLf &_
-				"			'Error': 'No error'," & vbCrLf &_
-				"			'Code': 0," & vbCrLf &_
-				"			'Path': '" & path & "'" & vbCrLf &_
-				"		}" & vbCrLf
+		Delete = objJson.Flush
 	End Function
-
+	
+	Private Sub  DeleteJSONobj(path)
+		objJson("Error") = ""
+		objJson("Code") = 0
+		objJson("Path") = path
+	End Sub
+	
 	Public Sub Download(path)
 		Dim item
-
     	Server.ScriptTimeout = 30000
-
 		Response.Clear
 		Response.ContentType = "application/x-download"
 		Set item = fs.GetFile(Server.MapPath(userPath & path))
 		Response.AddHeader "Content-Disposition", "attachment; filename=" & item.Name
 '		Response.AddHeader "Content-Length", item.Size
 		Set item = Nothing
-
 		Response.Buffer = False 
-
 		Set objStream = Server.CreateObject("ADODB.Stream")
 		objStream.Open
 		objStream.Type = 1
@@ -327,8 +327,12 @@ Class cFileManager
 		Response.BinaryWrite(objStream.Read)
 		objStream.Close
 		Response.End
-		
 	End Sub
-
+	
+	Public Function ErrorMessage(message)
+		Call returnError(message)
+		ErrorMessage = objJson.Flush
+	End Function
+	
 End Class
 %>

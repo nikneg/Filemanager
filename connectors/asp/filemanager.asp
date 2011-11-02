@@ -10,92 +10,91 @@
 'GflAx.GflAx used to get an image's dimensions
 'Last update 2011-01-20
 
+'************************** Nicola Negrelli Update 2011-10-31 **********************************
+'Feauture: No external plugins (Dundas.Upload.2, GflAx.GflAx) to get image dimensions and 
+'          upload function thanks to Lewis Moten script
+'          * Sometimes can't read right dimensions (-1x-1) specially if you use Photoshop like 
+'          * image editing software
+'          * Try open and resave image with other image editing software like ImageViewer	
+'          JSON class to build rigth sintax json objects (http://code.google.com/p/aspjson/)
+'Configuration: 1)download simogeo filemanager zip file (es.simogeo-Filemanager-5255a33.zip)
+'               2)unzip file
+'               3)rename wrapper folder (es.'simogeo-Filemanager-5255a33') to 'filemanager'
+'               4)copy this folder into the root of your web site 
+' 		          * If you copy this folder into other subfolder of your website
+'                 * add the path to 'userPath' and 'fileIconsPath' variables in filemanager.config.asp file
+'                 * (es. wwwroot/subfolder/filemanager -> /subfolder/filemanager/userfiles/ and 
+'                 *  /subfolder/filemanager/images/fileicons/)
+'               5)in filemanager.config.js set lang variable to 'asp'
+'               6)enjoy	
+'***********************************************************************************************
 
-Dim mode, userPath, FileManager
+
+Dim mode, FileManager, Json
+
+Json = ""
 
 Response.ContentType = "application/json"
 Response.Charset = "ISO-8859-1"
 
-If Len(Session("codSite")) = 0 Then
-	showErrorMessage("Your session has expired. Please login again.")
-End If
+
+'If Len(Session("codSite")) = 0 Then  '******** Here your ahthorization script ***********
+'	showErrorMessage("Your session has expired. Please login again.")
+'End If
 
 Set FileManager = New cFileManager
 
-mode = Request("mode")
-Select Case(lCase(mode))
-	Case "getinfo":
-		path = getPath("path") 'string
-		'getsize = Request("getsize") 'bool
-		Response.Write FileManager.GetInfo(path)
-
-	Case "getfolder":
-		path = getPath("path") 'string
-		'getsizes = Request("getsizes") 'bool
-		'type = Request("type") 'string optional
-		Response.Write FileManager.GetFolder(path)
-
-	Case "rename":
-		oldName = getPath("old") 'string
-		newName = Trim(Request("new")) 'string
-		
-		If inStr(newName,"/") > 0 Or inStr(newName,"\") > 0 Then
-			showErrorMessage("Invalid name.")
-		End If
-		
-		Response.Write FileManager.Rename(oldName, newName)
-
-	Case "delete":
-		path = getPath("path") 'string
-		Response.Write FileManager.Delete(path)
-
-	Case "addfolder":
-		path = getPath("path") 'string
-		name = Trim(Request("name")) 'string
-
-		If inStr(name,"/") > 0 Or inStr(name,"\") > 0 Then
-			showErrorMessage("Invalid name.")
-		End If
-
-		Response.Write FileManager.AddFolder(path, name)
-
-	Case "download":
-		path = getPath("path") 'string
-		FileManager.Download(path)
+If Len(Request.Querystring("mode")) > 0 Then
+	mode = Request.Querystring("mode")
+	Select Case(lCase(mode))
+		Case "getinfo":
+			path = getPath("path") 
+			Json = FileManager.GetInfo(path)
+		Case "getfolder":
+			path = getPath("path") 
+			Json = FileManager.GetFolder(path)
+		Case "rename":
+			oldName = getPath("old") 
+			newName = Trim(Request("new")) 		
+			Json =  FileManager.Rename(oldName, newName)
+		Case "delete":
+			path = getPath("path") 
+			Json =  FileManager.Delete(path)
+		Case "addfolder":
+			path = getPath("path") 
+			name = Trim(Request("name")) 
+			Json =  FileManager.AddFolder(path, name)
+		Case "download":
+			path = getPath("path") 
+			FileManager.Download(path)
+		Case Else:
+			Json = FileManager.ErrorMessage("Mode Error")
+	End Select
+Else
+	If Left(lCase(Request.ServerVariables("HTTP_CONTENT_TYPE")),20) = "multipart/form-data;" Then	
+		Response.ContentType = "text/html"
+		Response.Write "<textarea>"
+		Json = FileManager.Add()
+		Response.Write Json 
+		Response.Write "</textarea>"	
 		Response.End
+	End If
+End If
+				
+Response.Write Json 
 
-	Case Else:
-
-		'Uploading?
-		If Left(lCase(Request.ServerVariables("HTTP_CONTENT_TYPE")),20) = "multipart/form-data;" Then
-			Response.ContentType = "text/html"
-			Response.Write "<textarea>"
-			Response.Write FileManager.add()
-			Response.Write "</textarea>"
-		End If
-
-End Select
 Set FileManager = Nothing
 
 Function getPath(name)
-	Dim path
+	Dim path, Json
 	path = Request(name)
 	path = Trim(path)
 	path = Replace(path,"\","/")
 	If inStr(path,"../") > 0 Or Left(path,Len(userPath)) <> userPath Then
-		showErrorMessage("Invalid path.")
+		Json = FileManager.ErrorMessage("Invalid path")
+		Response.Write Json 
+		Response.End
 	End If
 	getPath = path
 End Function
-
-Sub showErrorMessage(text)
-		Response.Clear
-		%>
-		{
-			Error: "<%=text%>",
-			Code: -1
-		}
-		<%
-		Response.End
-End Sub
 %>
